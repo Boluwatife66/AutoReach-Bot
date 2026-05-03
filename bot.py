@@ -291,30 +291,40 @@ def run_server():
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────
-def main():
+
+   def main():
     if not BOT_TOKEN:
         raise RuntimeError("BOT_TOKEN not set in .env")
 
     init_db()
 
-    # Start Flask keep-alive server in background
-    threading.Thread(target=run_server, daemon=True).start()
+    import server
+    server.start()
     logger.info("Keep-alive server started.")
+
+    import asyncio
+    from telegram.ext import Application
 
     app = Application.builder().token(BOT_TOKEN).build()
 
-    # Commands
     app.add_handler(CommandHandler("start",     start))
     app.add_handler(CommandHandler("stats",     admin_stats))
     app.add_handler(CommandHandler("users",     admin_users))
     app.add_handler(CommandHandler("broadcast", admin_broadcast))
-
-    # Reply keyboard buttons (catches all non-command text messages)
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, menu_handler))
 
     logger.info("AutoReach Bot is running...")
-    app.run_polling(allowed_updates=Update.ALL_TYPES)
+
+    async def run():
+        await app.initialize()
+        await app.start()
+        await app.updater.start_polling(allowed_updates=Update.ALL_TYPES)
+        await app.updater.idle()
+        await app.stop()
+        await app.shutdown()
+
+    asyncio.run(run())
 
 
-if __name__ == "__main__":
+if name == "main":
     main()
