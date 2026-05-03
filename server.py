@@ -1,64 +1,36 @@
-"""
-server.py — AutoReach Keep-Alive + API Server
-=============================================
-- GET /          → "Bot is alive" (for UptimeRobot / Render health checks)
-- GET /api/stats → JSON stats for the dashboard
-- Runs on PORT from env (Render sets this automatically)
-"""
-
+import threading
 import os
-import sqlite3
+import time
+import urllib.request
+from http.server import HTTPServer, BaseHTTPRequestHandler
 
-from flask import Flask, jsonify
-from dotenv import load_dotenv
+class Handler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"PepeRush Bot is running!")
+    
+    def log_message(self, format, *args):
+        pass
 
-load_dotenv()
+def keep_alive():
+    url = os.environ.get("RENDER_EXTERNAL_URL", "")
+    if not url:
+        return
+    while True:
+        try:
+            urllib.request.urlopen(url)
+        except:
+            pass
+        time.sleep(600)  # ping every 10 minutes
 
-app   = Flask(__name__)
-PORT  = int(os.getenv("PORT", 8080))
-DB_PATH = "database.db"
+def run_server():
+    port = int(os.environ.get("PORT", 8080))
+    server = HTTPServer(("0.0.0.0", port), Handler)
+    server.serve_forever()
 
-
-def _query_stats() -> dict:
-    """Read stats from SQLite. Returns zeros if DB doesn't exist yet."""
-    try:
-        conn = sqlite3.connect(DB_PATH)
-        conn.row_factory = sqlite3.Row
-        from datetime import date
-        today   = date.today().isoformat()
-        total   = conn.execute("SELECT COUNT(*) AS c FROM users").fetchone()["c"]
-        new_t   = conn.execute(
-            "SELECT COUNT(*) AS c FROM users WHERE date_joined = ?", (today,)
-        ).fetchone()["c"]
-        refs    = conn.execute(
-            "SELECT COALESCE(SUM(referrals_count),0) AS s FROM users"
-        ).fetchone()["s"]
-        conn.close()
-        return {"total_users": total, "new_today": new_t, "total_referrals": refs}
-    except Exception:
-        return {"total_users": 0, "new_today": 0, "total_referrals": 0}
-
-
-@app.route("/")
-def index():
-    """Health-check endpoint — keep Render / UptimeRobot happy."""
-    return "Bot is alive ✅", 200
-
-
-@app.route("/api/stats")
-def api_stats():
-    """
-    Returns bot statistics as JSON.
-    Used by the AutoReach Dashboard (dashboard/index.html).
-    """
-    stats = _query_stats()
-    # Add CORS header so the dashboard HTML file can call this from any origin
-    response = jsonify(stats)
-    response.headers["Access-Control-Allow-Origin"] = "*"
-    return response
-
-
-if __name__ == "__main__":
-    # This is called directly when imported by bot.py in a thread,
-    # OR you can run `python server.py` standalone for testing.
-    app.run(host="0.0.0.0", port=PORT)
+def start():
+    t1 = threading.Thread(target=run_server, daemon=True)
+    t1.start()
+    t2 = threading.Thread(target=keep_alive, daemon=True)
+    t2.start()
